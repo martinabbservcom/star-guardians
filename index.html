@@ -28,7 +28,7 @@ const INK = '#1b1340';
 const FONT = '"Comic Sans MS","Chalkboard SE","Trebuchet MS",system-ui,sans-serif';
 
 // ---------- save data ----------
-let save = { unlocked: 1, stars: {} };
+let save = { unlocked: 1, stars: {}, keys: {} };
 try { Object.assign(save, JSON.parse(localStorage.getItem('starguardians') || '{}')); } catch (e) {}
 function persist() { try { localStorage.setItem('starguardians', JSON.stringify(save)); } catch (e) {} }
 
@@ -262,8 +262,19 @@ const LEVELS = [
   { name: 'Solar Flare Run', coins: 280, planet: 'sky', pts: [[-30,500],[150,500],[150,100],[330,100],[330,300],[510,300],[510,100],[690,100],[690,450],[870,450]] },
   { name: 'Crystal Maze', coins: 300, planet: 'sky', pts: [[-30,80],[780,80],[780,190],[110,190],[110,300],[780,300],[780,410],[870,410]] },
   { name: 'Black Hole Spiral', coins: 320, planet: 'sky', pts: [[-30,70],[830,70],[830,480],[90,480],[90,150],[740,150],[740,400],[180,400],[180,230],[640,230],[640,320],[480,320]] },
-  { name: 'Galaxy Core', coins: 350, planet: 'sky', pts: [[-30,300],[100,300],[100,100],[250,100],[250,480],[400,480],[400,100],[550,100],[550,480],[700,480],[700,100],[860,100],[860,380]] }
+  { name: 'Galaxy Core', coins: 350, planet: 'sky', pts: [[-30,300],[100,300],[100,100],[250,100],[250,480],[400,480],[400,100],[550,100],[550,480],[700,480],[700,100],[860,100],[860,380]] },
+  // secret levels: opened with the key dropped by the boss of mission `key` (tier = difficulty, like that mission number)
+  { name: 'Hidden Nebula', coins: 260, planet: 'sky', secret: true, key: 2, tier: 3, pts: [[-30,300],[150,300],[150,120],[400,120],[400,440],[650,440],[650,200],[870,200]] },
+  { name: 'Secret Satellite', coins: 320, planet: 'sky', secret: true, key: 5, tier: 6, pts: [[-30,440],[800,440],[800,300],[160,300],[160,160],[800,160],[800,90],[870,90]] },
+  { name: 'Vault of Stars', coins: 380, planet: 'sky', secret: true, key: 8, tier: 9, pts: [[-30,90],[200,90],[200,460],[400,460],[400,90],[600,90],[600,460],[800,460],[800,250],[870,250]] }
 ];
+const MAIN = LEVELS.filter(l => !l.secret).length;
+// every third mission ends with a boss with its own health bar; beating it drops a key to a secret level
+const BOSSES = {
+  2: { name: 'Rock Crusher', col: '#c98a4d' },
+  5: { name: 'Star Devourer', col: '#d0507a' },
+  8: { name: 'Galaxy Overlord', col: '#7a5aff' }
+};
 function buildPath(a) {
   const pts = a.map(p => ({ x: p[0], y: p[1] })), L = [0];
   for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + dist(pts[i], pts[i - 1]));
@@ -283,7 +294,7 @@ function distToPath(P, p) {
   }
   return best;
 }
-function genWave(li, w) {
+function genWave(li, w, boss) {
   const q = [], n = 6 + w * 2 + li + (li >= 6 ? 2 : 0), types = ['blob'];
   if (w >= 2) types.push('zoomer');
   if (w >= 3 || li >= 2) types.push('chonk');
@@ -299,6 +310,7 @@ function genWave(li, w) {
   }
   // make sure brand new aliens show up the first time
   if (w === 3) Object.keys(INTRO).filter(k => INTRO[k] === li).forEach((k, j) => { if (q[1 + j * 2]) q[1 + j * 2].type = k; });
+  if (boss) { if (w === TOTAL_WAVES) { t += 3; q.push({ at: t, type: 'boss', mega: true }); } return q; }
   if (li >= 7 && w === 4) { t += 2.5; q.push({ at: t, type: 'boss' }); }
   if (w === TOTAL_WAVES) for (let i = 0; i < 1 + Math.floor(li / 3); i++) { t += 2.5; q.push({ at: t, type: 'boss' }); }
   return q;
@@ -312,9 +324,11 @@ let G = null, buttons = [], tip = '', mouse = { x: 480, y: 300 }, T = 0, shakeT 
 
 function startLevel(li) {
   const L = LEVELS[li], P = buildPath(L.pts), n = P.pts.length;
+  if (L.secret && !save.keys[L.key]) return; // needs the key from the boss
+  const tier = L.tier === undefined ? li : L.tier;
   const last = P.pts[n - 1], prev = P.pts[n - 2], dl = dist(last, prev);
   G = {
-    li, P, towers: [], enemies: [], shots: [], parts: [], texts: [], bolts: [], meteors: [],
+    li, tier, boss: !L.secret && !!BOSSES[li], bossDown: false, P, towers: [], enemies: [], shots: [], parts: [], texts: [], bolts: [], meteors: [],
     coins: L.coins, lives: 20, maxLives: 20, wave: 0, queue: [], waveT: 0, cdown: 12,
     speed: 1, paused: false, sel: null, placing: null, armed: null, cd: {}, freezeT: 0, state: 'play', stars: 0, hit: 0,
     beams: [], omens: [], banners: [], seen: {}, evT: 12, odT: 0, flash: 0, belts: [], beltT: rnd(8, 14),
@@ -353,14 +367,19 @@ function placeTower(p) {
 }
 
 // ---------- enemies ----------
-function spawn(type, d, hpm) {
-  const D = EN[type], li = G.li;
-  const m = hpm || (1 + 0.2 * (G.wave - 1)) * (1 + 0.25 * li) * (type === 'boss' ? 1 + 0.2 * li : 1);
+function spawn(type, d, hpm, mega) {
+  const D = EN[type], li = G.tier;
+  const m = hpm || (1 + 0.2 * (G.wave - 1)) * (1 + 0.25 * li) * (type === 'boss' ? 1 + 0.2 * li : 1) * (mega ? 1.6 : 1);
   const e = { type, hp: D.hp * m, max: D.hp * m, d: d || 0, sp: D.sp, r: D.r, rw: D.rw, col: D.col, dmg: D.dmg,
     slowT: 0, slowF: 1, gs: 1, flash: 0, dead: false, x: 0, y: 0, hm: m,
     imm: D.imm || [], burnT: 0, burnD: 0, cloak: false, pt: 3 + Math.random() * 2, ph: rnd(0, 5), shieldT: 0, immCd: 0 };
+  if (mega) { // the level boss: bigger, tougher, own colour and name, shown on the boss bar
+    const B = BOSSES[G.li]; Object.assign(e, { mega: true, bname: B.name, col: B.col, r: 44, rw: 250, dmg: 8, sp: 26, shown: 1 });
+    G.banners.push({ icon: '💀', title: 'BOSS: ' + B.name, sub: 'Defeat it to win the key to a secret level!', col: '#ff5a5a', t: 4, max: 4 });
+    sfx('omenBad'); shakeT = 0.4;
+  }
   const p = posAt(G.P, e.d); e.x = p.x; e.y = p.y; G.enemies.push(e);
-  if (D.intro && !G.seen[type]) {
+  if (D.intro && !G.seen[type] && !mega) {
     G.seen[type] = 1;
     G.banners.push({ alien: type, title: 'New alien: ' + D.name, sub: alienLine(type), col: '#ff9db4', t: 4.5, max: 4.5 });
   }
@@ -383,6 +402,11 @@ function kill(e) {
   e.dead = true; G.coins += e.rw; sfx('pop');
   burst(e.x, e.y, e.col, 10, true);
   G.texts.push({ x: e.x, y: e.y - 10, s: '+' + e.rw, life: 0.9, max: 0.9 });
+  if (e.mega) { // boss down: big celebration, the key is awarded when the level is won
+    G.bossDown = true; burst(e.x, e.y, '#ffe14d', 40, true); burst(e.x, e.y, e.col, 30);
+    G.texts.push({ x: e.x, y: e.y - 40, s: '🔑 KEY!', life: 2, max: 2, col: '#ffe14d', big: true });
+    G.flash = 0.5; shakeT = 0.5; sfx('win');
+  }
   if (e.type === 'splitter') { spawn('mini', Math.max(0, e.d - 8), e.hm); spawn('mini', e.d + 8, e.hm); }
 }
 function burst(x, y, col, n, stars) {
@@ -420,7 +444,8 @@ function powers(e, dt) {
       { const p = posAt(G.P, e.d); e.x = p.x; e.y = p.y; swirl(p); } sfx('warp'); e.pt = 4.5; break;
     case 'boss':
       e.pt -= dt; if (e.pt > 0) break;
-      e.pt = 8; spawn('blob', Math.max(0, e.d - 25)); spawn('blob', Math.max(0, e.d - 50));
+      if (e.mega) { e.pt = 6; for (let i = 1; i <= 3; i++) spawn(i === 2 ? 'chonk' : 'blob', Math.max(0, e.d - 25 * i)); }
+      else { e.pt = 8; spawn('blob', Math.max(0, e.d - 25)); spawn('blob', Math.max(0, e.d - 50)); }
       G.parts.push({ x: e.x, y: e.y, ring: 70, life: 0.5, max: 0.5, rcol: 'rgba(255,90,90,.4)' }); sfx('warp'); break;
   }
 }
@@ -514,7 +539,7 @@ function useAbility(id, p) {
 //  UPDATE
 // ============================================================
 function startWave() {
-  G.wave++; G.queue = genWave(G.li, G.wave); G.waveT = 0; G.cdown = -1;
+  G.wave++; G.queue = genWave(G.tier, G.wave, G.boss); G.waveT = 0; G.cdown = -1;
 }
 // random event: a good or bad space object hurtles toward a station
 function startOmen() {
@@ -566,7 +591,7 @@ function update(dt) {
   if (G.cdown >= 0) { G.cdown -= dt; if (G.cdown <= 0) startWave(); }
   else {
     G.waveT += dt;
-    while (G.queue.length && G.queue[0].at <= G.waveT) spawn(G.queue.shift().type);
+    while (G.queue.length && G.queue[0].at <= G.waveT) { const q = G.queue.shift(); spawn(q.type, 0, 0, q.mega); }
     if (!G.queue.length && G.wave < TOTAL_WAVES) { G.cdown = 8; G.coins += 15 + G.wave * 5; }
   }
   // random station events + banners
@@ -624,9 +649,11 @@ function update(dt) {
 function winLevel() {
   G.state = 'win'; G.sel = G.placing = G.armed = null;
   const f = G.lives / G.maxLives; G.stars = f >= 0.8 ? 3 : f >= 0.5 ? 2 : 1;
-  const prev = save.unlocked, next = Math.min(LEVELS.length, G.li + 2);
-  save.unlocked = Math.max(save.unlocked, next);
+  const secret = !!LEVELS[G.li].secret, prev = save.unlocked, next = Math.min(MAIN, G.li + 2);
+  if (!secret) save.unlocked = Math.max(save.unlocked, next);
   save.stars[G.li] = Math.max(save.stars[G.li] || 0, G.stars);
+  G.keyGot = G.boss && G.bossDown; G.newKey = G.keyGot && !save.keys[G.li];
+  if (G.keyGot) save.keys[G.li] = true;
   justUnlocked = [];
   if (save.unlocked > prev) {
     TOWERS.filter(t => t.req === save.unlocked).forEach(t => justUnlocked.push({ kind: 'tower', o: t }));
@@ -1026,10 +1053,27 @@ function drawLevels() {
     if (open) txt(String(i + 1), p[0], p[1] + bob, 38, '#fff'); else txt('🔒', p[0], p[1] + bob, 30, '#fff', 'center', false);
     txt(LEVELS[i].name, p[0], p[1] + 66, 17, open ? '#fff' : '#9a93c4');
     for (let s = 0; s < 3; s++) drawStar(p[0] + (s - 1) * 22, p[1] + 90, 9, (save.stars[i] || 0) > s ? '#ffd23f' : '#4a3d8f');
+    if (BOSSES[i]) { // boss mission badge (+ key once won)
+      circle(p[0] + 34, p[1] - 32 + bob, 15, open ? '#ff3b3b' : '#5a5478', 3); txt('💀', p[0] + 34, p[1] - 32 + bob, 17, '#fff', 'center', false);
+      if (save.keys[i]) txt('🔑', p[0] - 36, p[1] - 34 + bob, 22, '#fff', 'center', false);
+    }
+  });
+  // secret levels, opened by the keys that bosses drop
+  txt('Secret levels', 40, 474, 17, '#ffe14d', 'left');
+  LEVELS.forEach((L, i) => {
+    if (!L.secret) return;
+    const k = i - MAIN, x = 270 + k * 210, y = 474, open = !!save.keys[L.key], bob = Math.sin(T * 2 + k) * 3;
+    btn(x - 34, y - 34 + bob, 68, 68, '', () => startLevel(i), { disabled: !open, invisible: true });
+    if (open) { g.globalAlpha = 0.25 + 0.2 * Math.sin(T * 4 + k); circle(x, y + bob, 42, '#ffe14d', 0); g.globalAlpha = 1; }
+    circle(x, y + bob, 30, open ? '#ffd23f' : '#5a5478', 4);
+    g.fillStyle = 'rgba(255,255,255,.3)'; g.beginPath(); g.ellipse(x - 10, y - 13 + bob, 9, 5, -0.6, 0, 7); g.fill();
+    txt(open ? '🔑' : '🔒', x, y + bob, 28, '#fff', 'center', false);
+    txt(open ? L.name : 'Beat the boss of mission ' + (L.key + 1), x, y + 46, 14, open ? '#fff' : '#9a93c4');
+    if (open) for (let s = 0; s < 3; s++) drawStar(x + 48 + s * 14, y + bob, 6, (save.stars[i] || 0) > s ? '#ffd23f' : '#4a3d8f');
   });
   const ts = unlockedTowers().length, as = ABILITIES.filter(a => save.unlocked >= a.req).length;
-  txt('Your arsenal: ' + ts + ' of ' + TOWERS.length + ' stations · ' + as + ' of ' + ABILITIES.length + ' special powers', 480, 530, 19, '#cfc8ff');
-  txt('Win missions to unlock new weapons!', 480, 556, 17, '#8fe8ff');
+  txt('Your arsenal: ' + ts + ' of ' + TOWERS.length + ' stations · ' + as + ' of ' + ABILITIES.length + ' special powers', 480, 548, 17, '#cfc8ff');
+  txt('Win missions to unlock new weapons! Boss missions (💀) drop keys!', 480, 574, 16, '#8fe8ff', 'center', false);
   btn(14, 14, 100, 40, '‹ Back', () => { sfx('click'); screen = 'title'; }, { col: '#6be3ff', size: 18 });
   btn(W - 124, 14, 110, 40, muted ? '♪ Off' : '♪ On', toggleMute, { col: '#6be3ff', size: 18 });
 }
@@ -1037,7 +1081,7 @@ function drawLevels() {
 function drawPlay() {
   let sx = 0, sy = 0; if (shakeT > 0) { sx = rnd(-4, 4); sy = rnd(-4, 4); }
   g.save(); g.translate(sx, sy);
-  drawBg(G.li); drawPath(G.P); drawPlanet(G.planet, G.hit > 0, G.lives / G.maxLives);
+  drawBg(G.tier); drawPath(G.P); drawPlanet(G.planet, G.hit > 0, G.lives / G.maxLives);
   // range of selected / placing
   if (G.sel) { const s = stat(G.sel); circle(G.sel.x, G.sel.y, s.range, 'rgba(255,255,255,.12)', 0); g.setLineDash([8, 8]); g.lineWidth = 2.5; g.strokeStyle = '#fff'; g.beginPath(); g.arc(G.sel.x, G.sel.y, s.range, 0, 7); g.stroke(); g.setLineDash([]); }
   for (const b of G.towers) if (b.id === 'beacon') { // pulsing boost zone
@@ -1045,7 +1089,12 @@ function drawPlay() {
     g.beginPath(); g.arc(b.x, b.y, br * p, 0, 7); g.stroke(); g.globalAlpha = 1;
   }
   for (const t of [...G.towers].sort((a, b) => a.y - b.y)) drawTower(t);
-  for (const e of [...G.enemies].sort((a, b) => a.y - b.y)) drawAlien(e, 1, T);
+  for (const e of [...G.enemies].sort((a, b) => a.y - b.y)) {
+    if (e.mega) { // menacing pulsing aura
+      const p = 0.5 + 0.5 * Math.sin(T * 4); g.globalAlpha = 0.2 + 0.15 * p; circle(e.x, e.y, e.r * (1.5 + 0.15 * p), e.col, 0); g.globalAlpha = 1;
+    }
+    drawAlien(e, 1, T);
+  }
   // show which aliens can't be hurt by the station being built / selected
   const curDt = G.placing ? TD[G.placing].dt : G.sel ? TD[G.sel.id].dt : null;
   if (curDt) for (const e of G.enemies) if (e.imm.includes(curDt)) {
@@ -1113,8 +1162,9 @@ function drawPlay() {
     }
     if (G.armed === 'meteor') { circle(mouse.x, mouse.y, 70, 'rgba(255,120,60,.2)', 0); g.setLineDash([6, 6]); g.lineWidth = 3; g.strokeStyle = '#ff9a5c'; g.beginPath(); g.arc(mouse.x, mouse.y, 70, 0, 7); g.stroke(); g.setLineDash([]); }
   }
-  if (G.state === 'play' && !G.placing && !G.armed) for (const e of G.enemies) if (!e.cloak && dist(e, mouse) < e.r + 6) { tip = enemyInfo(e.type); break; }
+  if (G.state === 'play' && !G.placing && !G.armed) for (const e of G.enemies) if (!e.cloak && dist(e, mouse) < e.r + 6) { tip = e.mega ? e.bname + ': defeat me to win a key!' : enemyInfo(e.type); break; }
   drawBanner();
+  drawBossBar();
   drawHUD();
   if (G.state !== 'play') drawEnd(); else if (G.paused) drawPause();
 }
@@ -1173,9 +1223,26 @@ function drawHUD() {
   if (!msg && G.wave === 0 && G.towers.length === 0) msg = 'Pick a station below, then tap the map to build it next to the golden ring!';
   if (msg) { g.font = 'bold 16px ' + FONT; const w = g.measureText(msg).width + 30; rr(W / 2 - w / 2, BOT - 40, w, 30, 15); g.fillStyle = 'rgba(15,8,50,.9)'; g.fill(); g.lineWidth = 3; g.strokeStyle = INK; g.stroke(); txt(msg, W / 2, BOT - 25, 16, '#fff', 'center', false); }
 }
+const bossAlive = () => G.enemies.find(e => e.mega && !e.dead);
+// big health bar across the top of the screen while a level boss is alive
+function drawBossBar() {
+  const e = bossAlive(); if (!e || G.state !== 'play') return;
+  const w = 560, h = 26, x = W / 2 - w / 2, y = TOP + 8, ratio = Math.max(0, e.hp / e.max);
+  e.shown += (ratio - e.shown) * 0.08; // white "damage trail" that catches up
+  rr(x - 4, y - 4, w + 8, h + 8, 14); g.fillStyle = INK; g.fill();
+  rr(x, y, w, h, 10); g.fillStyle = '#3a1030'; g.fill();
+  g.save(); rr(x, y, w, h, 10); g.clip();
+  g.fillStyle = 'rgba(255,255,255,.75)'; g.fillRect(x, y, w * e.shown, h);
+  const gr = g.createLinearGradient(x, 0, x + w, 0); gr.addColorStop(0, '#ff3b3b'); gr.addColorStop(1, '#ff9a3d');
+  g.fillStyle = gr; g.fillRect(x, y, w * ratio, h);
+  g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(x, y, w, h * 0.35);
+  g.restore();
+  rr(x, y, w, h, 10); g.lineWidth = 3; g.strokeStyle = INK; g.stroke();
+  txt('💀 ' + e.bname + '  ' + Math.ceil(ratio * 100) + '%', W / 2, y + h / 2 + 1, 16, '#fff');
+}
 function drawBanner() {
   const b = G.banners[0]; if (!b) return;
-  const a = Math.min(1, (b.max - b.t) * 4, b.t * 3), w = 580, h = 62, x = W / 2 - w / 2, y = TOP + 10 - (1 - a) * 20;
+  const a = Math.min(1, (b.max - b.t) * 4, b.t * 3), w = 580, h = 62, x = W / 2 - w / 2, y = TOP + 10 + (bossAlive() ? 40 : 0) - (1 - a) * 20;
   g.globalAlpha = a; rr(x, y + 4, w, h, 16); g.fillStyle = INK; g.fill(); rr(x, y, w, h, 16); g.fillStyle = 'rgba(40,24,110,.96)'; g.fill(); g.lineWidth = 4; g.strokeStyle = b.col; g.stroke();
   if (b.alien) { const D = EN[b.alien]; drawAlien({ type: b.alien, x: x + 40, y: y + 36, r: Math.min(D.r, 17), col: D.col, imm: D.imm, nobadge: true, flash: 0, hp: 1, max: 1, slowT: 0, pt: 9, cloak: false }, 1, T); }
   else txt(b.icon, x + 38, y + h / 2 + 2, 32, '#fff', 'center', false);
@@ -1191,24 +1258,29 @@ function drawPause() {
 function drawEnd() {
   buttons = []; tip = '';
   g.fillStyle = 'rgba(10,5,40,.7)'; g.fillRect(0, 0, W, H);
-  const win = G.state === 'win', last = G.li === LEVELS.length - 1;
-  bigPanel(220, 70, 520, win ? 440 : 330);
+  const win = G.state === 'win', secret = !!LEVELS[G.li].secret, last = !secret && G.li === MAIN - 1;
+  const ky = win && G.keyGot ? 34 : 0; // extra room for the key message
+  bigPanel(220, 70, 520, win ? 440 + ky : 330);
   if (win) {
-    txt(last ? 'You saved the galaxy!' : 'Mission Complete!', 480, 124, 42, '#ffe14d');
+    txt(last ? 'You saved the galaxy!' : secret ? 'Secret Level Complete!' : G.keyGot ? 'Boss Defeated!' : 'Mission Complete!', 480, 124, 42, '#ffe14d');
     for (let i = 0; i < 3; i++) drawStar(480 + (i - 1) * 76, 196 + (i === 1 ? -10 : 0), 34, G.stars > i ? '#ffd23f' : '#4a3d8f');
     txt(G.lives + ' hearts left on your planet', 480, 252, 20, '#fff');
+    if (G.keyGot) {
+      txt('🔑 ' + (G.newKey ? 'You won the key to a SECRET LEVEL!' : 'Key collected again!'), 480, 284, 22, '#ffe14d', 'center', false);
+      if (G.newKey) txt('Look for the glowing gold planet on the map.', 480, 308, 15, '#cfc8ff', 'center', false);
+    }
     if (justUnlocked.length) {
-      txt('✨ NEW UNLOCK! ✨', 480, 292, 26, '#8dffb0');
+      txt('✨ NEW UNLOCK! ✨', 480, 292 + ky, 26, '#8dffb0');
       justUnlocked.forEach((u, i) => {
-        const y = 335 + i * 38;
+        const y = 335 + ky + i * 38;
         txt((u.kind === 'tower' ? '🛰 ' : '⚡ ') + u.o.name, 480, y, 22, '#fff');
         txt(u.o.tip.split(': ')[1], 480, y + 20, 14, '#cfc8ff', 'center', false);
       });
-    } else if (last) txt('All stations & powers are yours!', 480, 300, 22, '#8dffb0');
-    const y = 430;
+    } else if (last) txt('All stations & powers are yours!', 480, 300 + ky, 22, '#8dffb0');
+    const y = 430 + ky;
     btn(250, y, 140, 50, 'Replay', () => startLevel(G.li), { col: '#6be3ff', size: 20 });
     btn(400, y, 140, 50, 'Map', () => { screen = 'levels'; sfx('click'); }, { col: '#ff7ad1', size: 20 });
-    if (!last) btn(550, y, 170, 50, 'Next Mission ▶', () => startLevel(G.li + 1), { col: '#6be36b', size: 20 });
+    if (!last && !secret) btn(550, y, 170, 50, 'Next Mission ▶', () => startLevel(G.li + 1), { col: '#6be36b', size: 20 });
   } else {
     txt('Oh no!', 480, 140, 56, '#ff9db4');
     drawHeart(480, 215, 30, '#7a5a8a');
@@ -1253,7 +1325,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;
   if (shakeT > 0) shakeT -= dt;
   buttons = []; tip = ''; FDT = dt;
-  mus = screen === 'play' && G ? G.li : 0;
+  mus = screen === 'play' && G ? G.tier : 0;
   if (screen === 'play' && G) { for (let i = 0; i < G.speed; i++) update(dt); drawPlay(); }
   else if (screen === 'levels') drawLevels();
   else drawTitle();
