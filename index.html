@@ -682,9 +682,11 @@ function strokePath(P, w, col, dash) {
 }
 function drawPath(P) {
   // concentric Saturn-style ring bands, outermost first (dark ones act as the gaps between rings)
-  strokePath(P, 62, 'rgba(20,12,40,.55)');
+  strokePath(P, 62, 'rgba(20,12,40,.3)');
   const bands = [[58, '#a8916a'], [50, '#d9c08a'], [42, '#6b5a40'], [38, '#efdba5'], [28, '#c9ad76'], [24, '#f6e8bd'], [14, '#d9c08a'], [8, '#f8efd2']];
+  g.globalAlpha = 0.5;
   for (const [w, c] of bands) strokePath(P, w, c);
+  g.globalAlpha = 1;
   g.lineCap = 'butt';
   g.lineDashOffset = -T * 26; strokePath(P, 2, 'rgba(255,255,255,.6)', [3, 19]);
   g.lineDashOffset = T * 14; strokePath(P, 2, 'rgba(120,95,60,.5)', [2, 27]);
