@@ -579,6 +579,7 @@ function drawTitle() {
   const has = save.unlocked > 1 || Object.keys(save.stars).length;
   btn(340, 275, 280, 70, has ? 'Play!' : 'Start Game', () => { sfx('click'); screen = 'levels'; }, { col: '#ff6bd0', size: 36 });
   btn(14, H - 54, 110, 40, muted ? '♪ Off' : '♪ On', () => { toggleMute(); }, { col: '#6be3ff', size: 18 });
+  txt('Created by Eli', 480, 548, 28, '#ffe14d');
   txt('Made for everyone · Tap or click to play', 480, H - 22, 15, '#cfc8ff');
 }
 const NODES = [[120, 400], [280, 260], [440, 400], [600, 260], [760, 400], [860, 230]];
