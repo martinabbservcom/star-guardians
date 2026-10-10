@@ -317,7 +317,7 @@ function startLevel(li) {
     li, P, towers: [], enemies: [], shots: [], parts: [], texts: [], bolts: [], meteors: [],
     coins: L.coins, lives: 20, maxLives: 20, wave: 0, queue: [], waveT: 0, cdown: 12,
     speed: 1, paused: false, sel: null, placing: null, armed: null, cd: {}, freezeT: 0, state: 'play', stars: 0, hit: 0,
-    beams: [], omens: [], banners: [], seen: {}, evT: 12, odT: 0, flash: 0,
+    beams: [], omens: [], banners: [], seen: {}, evT: 12, odT: 0, flash: 0, belts: [], beltT: rnd(20, 35),
     planet: { x: last.x + (last.x - prev.x) / dl * 34, y: last.y + (last.y - prev.y) / dl * 34, r: 52 }
   };
   ABILITIES.forEach(a => G.cd[a.id] = 6);
@@ -524,6 +524,29 @@ function startOmen() {
   G.omens.push({ t, id, good, p: 0, sx: clamp(t.x + rnd(-250, 250), 20, W - 20), sy: TOP - 30 });
   sfx(good ? 'omenGood' : 'omenBad');
 }
+// random event: an asteroid belt sweeps across the screen and damages any alien it hits
+function startBelt() {
+  const dir = Math.random() < 0.5 ? 1 : -1, rocks = [];
+  for (let i = 0; i < 34; i++) rocks.push({ u: rnd(0, 150), y: rnd(TOP + 10, BOT - 10), r: rnd(5, 13), rot: rnd(0, 6.3), spin: rnd(-4, 4), k: rnd(0.9, 1.15), hit: new Set() });
+  G.belts.push({ x: dir > 0 ? -170 : W + 20, dir, rocks });
+  G.banners.push({ icon: '🪨', title: 'Asteroid belt!', sub: 'Space rocks are smashing through the aliens!', col: '#ffc98a', t: 3, max: 3 });
+  sfx('omenBad');
+}
+function updBelts(dt) {
+  for (const b of G.belts) {
+    b.x += b.dir * 340 * dt;
+    for (const r of b.rocks) {
+      r.rot += r.spin * dt; r.px = b.x + r.u * r.k; // rock position (x); y is fixed
+      if (r.px < -20 || r.px > W + 20) continue;
+      for (const e of G.enemies) {
+        if (e.dead || r.hit.has(e) || Math.hypot(e.x - r.px, e.y - r.y) > r.r + e.r) continue;
+        r.hit.add(e); hurt(e, 8 + r.r * 2.5, 'blast'); burst(e.x, e.y, '#c9ad76', 4);
+      }
+    }
+    if (b.dir > 0 ? b.x > W + 20 : b.x < -190) b.done = true;
+  }
+  G.belts = G.belts.filter(b => !b.done);
+}
 function applyOmen(o) {
   const t = o.t, F = FX[o.id]; if (!G.towers.includes(t)) return;
   t.fx = { id: o.id, left: F.dur, max: F.dur };
@@ -548,6 +571,8 @@ function update(dt) {
   }
   // random station events + banners
   if (G.wave >= 1) { G.evT -= dt; if (G.evT <= 0) { G.evT = Math.max(7, rnd(11, 18) - G.li * 0.6); startOmen(); } }
+  if (G.wave >= 1) { G.beltT -= dt; if (G.beltT <= 0) { G.beltT = rnd(25, 45); if (G.enemies.length) startBelt(); } }
+  updBelts(dt);
   if (G.banners.length) { G.banners[0].t -= dt; if (G.banners[0].t <= 0) G.banners.shift(); }
   for (const o of G.omens) { o.p += dt / 1.1; if (o.p >= 1) { o.done = true; applyOmen(o); } }
   // enemies
@@ -1052,6 +1077,15 @@ function drawPlay() {
       g.beginPath(); b.pts.forEach((p, i) => { const jx = i ? rnd(-5, 5) : 0, jy = i ? rnd(-5, 5) : 0; i ? g.lineTo(p.x + jx, p.y + jy) : g.moveTo(p.x, p.y); });
       g.lineWidth = w; g.strokeStyle = c; g.lineJoin = 'round'; g.stroke();
     }
+  }
+  for (const b of G.belts) for (const r of b.rocks) {
+    if (r.px < -30 || r.px > W + 30) continue;
+    g.strokeStyle = 'rgba(220,200,160,.35)'; g.lineWidth = r.r * 0.7; g.lineCap = 'round'; g.beginPath(); g.moveTo(r.px, r.y); g.lineTo(r.px - b.dir * (22 + r.r * 2), r.y); g.stroke();
+    g.save(); g.translate(r.px, r.y); g.rotate(r.rot); g.beginPath();
+    for (let i = 0; i < 7; i++) { const an = i / 7 * 6.283, m = r.r * (0.8 + 0.25 * Math.sin(i * 2.7 + r.y)); i ? g.lineTo(Math.cos(an) * m, Math.sin(an) * m) : g.moveTo(Math.cos(an) * m, Math.sin(an) * m); }
+    g.closePath(); g.fillStyle = '#8f7c64'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = INK; g.stroke();
+    g.fillStyle = 'rgba(255,240,210,.35)'; g.beginPath(); g.ellipse(-r.r * 0.3, -r.r * 0.3, r.r * 0.4, r.r * 0.25, 0, 0, 7); g.fill();
+    g.restore();
   }
   for (const m of G.meteors) if (m.t > 0) { const k = m.t / m.fall, y = m.y - (1 - k) * 380, x = m.x - (1 - k) * 160; circle(x, y, 11, '#ff8a3d', 3); circle(x - 3, y - 3, 4, '#ffd27a', 0); g.strokeStyle = 'rgba(255,170,80,.7)'; g.lineWidth = 6; g.beginPath(); g.moveTo(x, y); g.lineTo(x - 30, y - 24); g.stroke(); }
   for (const p of G.parts) {
