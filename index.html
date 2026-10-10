@@ -317,7 +317,7 @@ function startLevel(li) {
     li, P, towers: [], enemies: [], shots: [], parts: [], texts: [], bolts: [], meteors: [],
     coins: L.coins, lives: 20, maxLives: 20, wave: 0, queue: [], waveT: 0, cdown: 12,
     speed: 1, paused: false, sel: null, placing: null, armed: null, cd: {}, freezeT: 0, state: 'play', stars: 0, hit: 0,
-    beams: [], omens: [], banners: [], seen: {}, evT: 12, odT: 0, flash: 0, belts: [], beltT: rnd(20, 35),
+    beams: [], omens: [], banners: [], seen: {}, evT: 12, odT: 0, flash: 0, belts: [], beltT: rnd(8, 14),
     planet: { x: last.x + (last.x - prev.x) / dl * 34, y: last.y + (last.y - prev.y) / dl * 34, r: 52 }
   };
   ABILITIES.forEach(a => G.cd[a.id] = 6);
@@ -571,7 +571,7 @@ function update(dt) {
   }
   // random station events + banners
   if (G.wave >= 1) { G.evT -= dt; if (G.evT <= 0) { G.evT = Math.max(7, rnd(11, 18) - G.li * 0.6); startOmen(); } }
-  if (G.wave >= 1) { G.beltT -= dt; if (G.beltT <= 0) { G.beltT = rnd(25, 45); if (G.enemies.length) startBelt(); } }
+  if (G.wave >= 1) { G.beltT -= dt; if (G.beltT <= 0) { G.beltT = rnd(10, 20); if (G.enemies.length) startBelt(); } }
   updBelts(dt);
   if (G.banners.length) { G.banners[0].t -= dt; if (G.banners[0].t <= 0) G.banners.shift(); }
   for (const o of G.omens) { o.p += dt / 1.1; if (o.p >= 1) { o.done = true; applyOmen(o); } }
@@ -660,7 +660,7 @@ const bgCanvas = document.createElement('canvas'); bgCanvas.width = W; bgCanvas.
   b.fillStyle = gr; b.fillRect(0, 0, W, H);
 })();
 let shooters = [], nextShoot = 1.5;
-function drawBg() {
+function drawBg(li) {
   g.drawImage(bgCanvas, 0, 0);
   // slowly drifting nebula clouds
   for (const c of CLOUDS) {
@@ -676,6 +676,8 @@ function drawBg() {
     const gg = g.createRadialGradient(x - p.r * 0.3, y - p.r * 0.3, p.r * 0.1, x, y, p.r); gg.addColorStop(0, p.c1); gg.addColorStop(1, p.c2);
     g.fillStyle = gg; g.beginPath(); g.arc(x, y, p.r, 0, 7); g.fill(); g.globalAlpha = 1;
   }
+  // deeper space at higher levels: darken the nebula and planets, but leave the stars bright
+  if (li > 0) { g.fillStyle = 'rgba(2,1,12,' + Math.min(0.7, li * 0.075) + ')'; g.fillRect(0, 0, W, H); }
   // moving, twinkling stars
   g.lineWidth = 1;
   for (const s of bgStars) {
@@ -1035,7 +1037,7 @@ function drawLevels() {
 function drawPlay() {
   let sx = 0, sy = 0; if (shakeT > 0) { sx = rnd(-4, 4); sy = rnd(-4, 4); }
   g.save(); g.translate(sx, sy);
-  drawBg(); drawPath(G.P); drawPlanet(G.planet, G.hit > 0, G.lives / G.maxLives);
+  drawBg(G.li); drawPath(G.P); drawPlanet(G.planet, G.hit > 0, G.lives / G.maxLives);
   // range of selected / placing
   if (G.sel) { const s = stat(G.sel); circle(G.sel.x, G.sel.y, s.range, 'rgba(255,255,255,.12)', 0); g.setLineDash([8, 8]); g.lineWidth = 2.5; g.strokeStyle = '#fff'; g.beginPath(); g.arc(G.sel.x, G.sel.y, s.range, 0, 7); g.stroke(); g.setLineDash([]); }
   for (const b of G.towers) if (b.id === 'beacon') { // pulsing boost zone
