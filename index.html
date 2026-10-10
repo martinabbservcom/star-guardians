@@ -20,9 +20,7 @@ const cv = document.getElementById('c'), g = cv.getContext('2d');
 const W = 960, H = 600, TOP = 46, BOT = 522;
 cv.width = W; cv.height = H;
 function resize() {
-  const s = Math.min(innerWidth / W, innerHeight / H);
-  cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
-  cv.style.marginTop = Math.max(0, (innerHeight - H * s) / 2) + 'px';
+  cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
 }
 addEventListener('resize', resize); resize();
 
@@ -684,13 +682,28 @@ function drawPath(P) {
   // concentric Saturn-style ring bands, outermost first (dark ones act as the gaps between rings)
   strokePath(P, 62, 'rgba(20,12,40,.3)');
   const bands = [[58, '#a8916a'], [50, '#d9c08a'], [42, '#6b5a40'], [38, '#efdba5'], [28, '#c9ad76'], [24, '#f6e8bd'], [14, '#d9c08a'], [8, '#f8efd2']];
-  g.globalAlpha = 0.5;
+  g.globalAlpha = 0.3;
   for (const [w, c] of bands) strokePath(P, w, c);
   g.globalAlpha = 1;
-  g.lineCap = 'butt';
-  g.lineDashOffset = -T * 26; strokePath(P, 2, 'rgba(255,255,255,.6)', [3, 19]);
-  g.lineDashOffset = T * 14; strokePath(P, 2, 'rgba(120,95,60,.5)', [2, 27]);
-  g.lineDashOffset = 0; g.lineCap = 'round';
+  if (!P.rocks) { // scatter a fixed set of rocks along the ring (seeded so they never jump around)
+    let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    P.rocks = [];
+    for (let d = 0; d < P.total; d += 5 + r() * 7) {
+      const a = posAt(P, d), b = posAt(P, Math.min(d + 2, P.total)), dl = Math.hypot(b.x - a.x, b.y - a.y) || 1, off = (r() - 0.5) * 48;
+      const n = 6 + Math.floor(r() * 3), sz = 2 + r() * r() * 6, rot = r() * 6.3, shape = [];
+      for (let k = 0; k < n; k++) shape.push(0.65 + r() * 0.5);
+      P.rocks.push({ x: a.x - (b.y - a.y) / dl * off, y: a.y + (b.x - a.x) / dl * off, sz, rot, shape, tone: r() });
+    }
+  }
+  for (const k of P.rocks) {
+    g.save(); g.translate(k.x, k.y); g.rotate(k.rot); g.beginPath();
+    k.shape.forEach((m, i) => { const an = i / k.shape.length * 6.283; i ? g.lineTo(Math.cos(an) * k.sz * m * 1.2, Math.sin(an) * k.sz * m) : g.moveTo(Math.cos(an) * k.sz * m * 1.2, Math.sin(an) * k.sz * m); });
+    g.closePath(); g.fillStyle = k.tone < 0.5 ? 'rgba(125,108,90,.85)' : 'rgba(165,148,122,.85)'; g.fill();
+    g.strokeStyle = 'rgba(40,30,25,.5)'; g.lineWidth = 1; g.stroke();
+    g.fillStyle = 'rgba(255,245,220,.35)'; g.beginPath(); g.ellipse(-k.sz * 0.3, -k.sz * 0.3, k.sz * 0.45, k.sz * 0.25, 0, 0, 7); g.fill();
+    g.restore();
+  }
+  g.lineCap = 'round';
 }
 function drawPlanet(pl, hit, frac) {
   g.save(); g.translate(pl.x + (hit ? rnd(-3, 3) : 0), pl.y + (hit ? rnd(-3, 3) : 0));
