@@ -239,7 +239,7 @@ const EN = {
   medic: { hp: 55, sp: 52, r: 15, rw: 12, col: '#f4fff4', dmg: 1, name: 'Medic Alien', desc: 'heals other aliens nearby!', intro: true },
   ghost: { hp: 50, sp: 70, r: 14, rw: 12, col: '#d8c8ff', dmg: 1, name: 'Ghost Alien', desc: 'goes invisible - stations cannot aim!', intro: true },
   jammer: { hp: 80, sp: 50, r: 16, rw: 14, col: '#35a7ff', dmg: 1, name: 'Jammer Alien', desc: 'zaps stations so they switch off!', intro: true },
-  warper: { hp: 65, sp: 50, r: 15, rw: 13, col: '#19d3b0', dmg: 1, name: 'Warp Alien', desc: 'teleports forward along the road!', intro: true }
+  warper: { hp: 65, sp: 50, r: 15, rw: 13, col: '#19d3b0', dmg: 1, name: 'Warp Alien', desc: 'teleports forward along the ring!', intro: true }
 };
 // level each special alien first appears on
 const INTRO = { mirror: 2, frosty: 2, rocky: 3, medic: 3, rubber: 4, ghost: 4, jammer: 5, ember: 6, warper: 6 };
@@ -681,8 +681,14 @@ function strokePath(P, w, col, dash) {
   g.lineWidth = w; g.strokeStyle = col; g.lineJoin = 'round'; g.lineCap = 'round'; g.setLineDash(dash || []); g.stroke(); g.setLineDash([]);
 }
 function drawPath(P) {
-  strokePath(P, 60, INK); strokePath(P, 50, '#5846b8'); strokePath(P, 42, '#7d6ae6');
-  g.lineCap = 'butt'; g.lineDashOffset = -T * 20; strokePath(P, 3, 'rgba(255,255,255,.55)', [10, 14]); g.lineDashOffset = 0; g.lineCap = 'round';
+  // concentric Saturn-style ring bands, outermost first (dark ones act as the gaps between rings)
+  strokePath(P, 62, 'rgba(20,12,40,.55)');
+  const bands = [[58, '#a8916a'], [50, '#d9c08a'], [42, '#6b5a40'], [38, '#efdba5'], [28, '#c9ad76'], [24, '#f6e8bd'], [14, '#d9c08a'], [8, '#f8efd2']];
+  for (const [w, c] of bands) strokePath(P, w, c);
+  g.lineCap = 'butt';
+  g.lineDashOffset = -T * 26; strokePath(P, 2, 'rgba(255,255,255,.6)', [3, 19]);
+  g.lineDashOffset = T * 14; strokePath(P, 2, 'rgba(120,95,60,.5)', [2, 27]);
+  g.lineDashOffset = 0; g.lineCap = 'round';
 }
 function drawPlanet(pl, hit, frac) {
   g.save(); g.translate(pl.x + (hit ? rnd(-3, 3) : 0), pl.y + (hit ? rnd(-3, 3) : 0));
@@ -1113,7 +1119,7 @@ function drawHUD() {
   let msg = tip;
   if (!msg && G.placing) msg = 'Tap the map to build · tap the button again or press Esc to cancel';
   if (!msg && G.armed) msg = 'Tap where the meteors should land!';
-  if (!msg && G.wave === 0 && G.towers.length === 0) msg = 'Pick a station below, then tap the map to build it next to the purple road!';
+  if (!msg && G.wave === 0 && G.towers.length === 0) msg = 'Pick a station below, then tap the map to build it next to the golden ring!';
   if (msg) { g.font = 'bold 16px ' + FONT; const w = g.measureText(msg).width + 30; rr(W / 2 - w / 2, BOT - 40, w, 30, 15); g.fillStyle = 'rgba(15,8,50,.9)'; g.fill(); g.lineWidth = 3; g.strokeStyle = INK; g.stroke(); txt(msg, W / 2, BOT - 25, 16, '#fff', 'center', false); }
 }
 function drawBanner() {
